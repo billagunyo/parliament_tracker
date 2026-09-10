@@ -1,0 +1,6 @@
+streamlit
+pandas
+openai
+pydantic
+nest_asyncio
+python-dotenv
