@@ -1,15 +1,12 @@
-import asyncio
-import nest_asyncio
-import pandas as pd
 import streamlit as st
+import pandas as pd
 
 from database import init_db
-from pipeline import stream_pipeline, compute_mp_rankings
+from pipeline import compute_mp_rankings, analyze_single_bill_sync
 from scraper import fetch_parliament_bills
 from bill_content import fetch_bills_listing
 
 st.set_page_config(page_title="Parliamentary MP Impact Tracker", layout="wide")
-nest_asyncio.apply()
 
 init_db()
 
@@ -30,6 +27,7 @@ max_bills = st.slider(
 
 if st.button("Fetch Bills & Run Scoring Pipeline"):
 
+    # ---- Step 1: tracker scrape ----
     with st.spinner("Scraping the Bills Tracker (status/sponsor data)..."):
         try:
             all_bills = fetch_parliament_bills()
@@ -41,6 +39,7 @@ if st.button("Fetch Bills & Run Scoring Pipeline"):
         st.error("No bills could be parsed from the tracker PDF.")
         st.stop()
 
+    # ---- Step 2: bills listing ----
     with st.spinner("Scraping the Bills listing (for actual bill PDFs)..."):
         try:
             listing_df = fetch_bills_listing(max_pages=6)
@@ -50,43 +49,60 @@ if st.button("Fetch Bills & Run Scoring Pipeline"):
 
     st.success(
         f"Scraped {len(all_bills)} tracked bills and {len(listing_df)} listed bill documents. "
-        f"Streaming the {max_bills} most recent..."
+        f"Processing the {max_bills} most recent..."
     )
 
     bills_to_process = all_bills.head(max_bills)
 
-    results_placeholder = st.container()
-    progress_bar = st.progress(0)
+    # ---- Step 3: per-bill loop with LIVE incremental UI ----
+    progress_bar = st.progress(0.0)
+    status_text = st.empty()
+    results_area = st.container()
+
     collected_rows = []
+    total = len(bills_to_process)
 
-    async def stream_and_render():
-        total = len(bills_to_process)
-        count = 0
-        async for bill_row, analysis in stream_pipeline(bills_to_process, listing_df, max_concurrency=2):
-            count += 1
-            merged = {**bill_row.to_dict(), **analysis}
-            collected_rows.append(merged)
+    for i, (_, bill_row) in enumerate(bills_to_process.iterrows(), start=1):
+        status_text.info(f"⏳ [{i}/{total}] Analyzing: {bill_row['title'][:80]}...")
 
-            with results_placeholder:
-                score = analysis["Impact_Score"]
-                emoji = "🟢" if score > 0 else ("🔴" if score < 0 else "⚪")
-                source_note = (
-                    "📄 real bill text"
-                    if analysis.get("content_source") == "objects_and_reasons"
-                    else "⚠️ low confidence, no bill text matched"
-                )
-                st.write(
-                    f"{emoji} **{bill_row['title']}** "
-                    f"— Sponsor: {bill_row['sponsor']} "
-                    f"— Stage: {bill_row['stage']} "
-                    f"— Score: {score} "
-                    f"— {source_note}"
-                )
+        try:
+            analysis = analyze_single_bill_sync(bill_row, listing_df)
+        except Exception as e:
+            analysis = {
+                "bill_id": bill_row["bill_id"],
+                "Impact_Score": 0,
+                "Economic_Impact": 0,
+                "Social_Impact": 0,
+                "LLM_Summary": "Failed.",
+                "Justification": str(e),
+                "status": "failed",
+                "content_source": "error",
+            }
 
-            progress_bar.progress(count / total)
+        merged = {**bill_row.to_dict(), **analysis}
+        collected_rows.append(merged)
 
-    asyncio.run(stream_and_render())
+        score = analysis["Impact_Score"]
+        emoji = "🟢" if score > 0 else ("🔴" if score < 0 else "⚪")
+        source_note = (
+            "📄 real bill text"
+            if analysis.get("content_source") == "objects_and_reasons"
+            else "⚠️ low confidence, no bill text matched"
+        )
+        with results_area:
+            st.write(
+                f"{emoji} **{bill_row['title']}** "
+                f"— Sponsor: {bill_row['sponsor']} "
+                f"— Stage: {bill_row['stage']} "
+                f"— Score: {score} "
+                f"— {source_note}"
+            )
 
+        progress_bar.progress(i / total)
+
+    status_text.success(f"✅ Done. Analyzed {len(collected_rows)} bills.")
+
+    # ---- Step 4: aggregation ----
     processed_bills = pd.DataFrame(collected_rows)
     mp_leaderboard = compute_mp_rankings(processed_bills)
 
