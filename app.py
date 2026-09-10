@@ -13,7 +13,7 @@ nest_asyncio.apply()
 
 init_db()
 
-st.title("🏛️ Parliamentary MP & Bill Impact Tracker")
+st.title("Parliamentary MP & Bill Impact Tracker")
 
 st.markdown(
     """
@@ -101,10 +101,10 @@ if st.button("Fetch Bills & Run Scoring Pipeline"):
         c2.metric("Top Ranked MP/Sponsor", mp_leaderboard.iloc[0]["sponsor"])
         c3.metric("Top Score", f"{mp_leaderboard.iloc[0]['Net_Positive_Score']} pts")
 
-    st.subheader("🏆 MP / Sponsor Legislative Impact Leaderboard")
+    st.subheader("MP / Sponsor Legislative Impact Leaderboard")
     st.dataframe(mp_leaderboard, use_container_width=True)
 
-    st.subheader("📊 Net Impact Score by Sponsor")
+    st.subheader("Net Impact Score by Sponsor")
     if not mp_leaderboard.empty:
         st.bar_chart(data=mp_leaderboard, x="sponsor", y="Net_Positive_Score")
 
@@ -120,7 +120,7 @@ if st.button("Fetch Bills & Run Scoring Pipeline"):
     )
 
     st.divider()
-    st.subheader("⬇️ Download Data")
+    st.subheader("Download Data")
 
     col1, col2 = st.columns(2)
     with col1:
