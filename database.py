@@ -19,6 +19,17 @@ def init_db():
             )
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bill_content (
+                bill_id TEXT PRIMARY KEY,
+                pdf_url TEXT,
+                objects_and_reasons TEXT,
+                extraction_method TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
         conn.commit()
 
 
@@ -27,14 +38,13 @@ def get_cached_score(bill_id: str) -> dict | None:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT impact_score, economic_impact, social_impact, llm_summary, justification 
-            FROM bill_scores 
+            SELECT impact_score, economic_impact, social_impact, llm_summary, justification
+            FROM bill_scores
             WHERE bill_id = ?
             """,
             (bill_id,),
         )
         row = cursor.fetchone()
-
         if row:
             return {
                 "bill_id": bill_id,
@@ -64,5 +74,39 @@ def save_score_to_cache(bill_id: str, analysis_data: dict):
                 analysis_data["LLM_Summary"],
                 analysis_data["Justification"],
             ),
+        )
+        conn.commit()
+
+
+def get_cached_bill_content(bill_id: str) -> dict | None:
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT pdf_url, objects_and_reasons, extraction_method
+            FROM bill_content
+            WHERE bill_id = ?
+            """,
+            (bill_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                "pdf_url": row[0],
+                "objects_and_reasons": row[1],
+                "extraction_method": row[2],
+            }
+        return None
+
+
+def save_bill_content_to_cache(bill_id: str, pdf_url: str, content: str, method: str):
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO bill_content (bill_id, pdf_url, objects_and_reasons, extraction_method)
+            VALUES (?, ?, ?, ?)
+            """,
+            (bill_id, pdf_url, content, method),
         )
         conn.commit()
